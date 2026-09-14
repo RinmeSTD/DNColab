@@ -180,6 +180,32 @@ def test_cut_and_render_empty_segments(sample_video, clean_audio_fixture, tmp_pa
     with pytest.raises(ValueError, match="No speech segments"):
         cut_and_render_video_nvenc(sample_video, clean_audio_fixture, [], out_mp4)
 
+    # All non-positive intervals filtered out -> ValueError
+    with pytest.raises(ValueError, match="No valid speech segments"):
+        cut_and_render_video_nvenc(sample_video, clean_audio_fixture, [(3.0, 1.0), (2.0, 2.0), (-2.0, -1.0)], out_mp4)
+
+
+def test_cut_and_render_clamped_segments(sample_video, clean_audio_fixture, tmp_path):
+    # Segment with negative start clamped to 0.0
+    out_mp4 = str(tmp_path / "clamped.mp4")
+    rendered = cut_and_render_video_nvenc(
+        sample_video, clean_audio_fixture, [(-1.0, 1.0)], out_mp4, use_gpu=False
+    )
+    assert os.path.exists(rendered)
+    meta = probe_video_metadata(rendered)
+    assert pytest.approx(meta["duration"], abs=0.2) == 1.0
+
+
+def test_cut_and_render_gpu_fallback_logs_stderr(sample_video, clean_audio_fixture, tmp_path, caplog):
+    out_mp4 = str(tmp_path / "gpu_log_test.mp4")
+    import logging
+    with caplog.at_level(logging.WARNING):
+        cut_and_render_video_nvenc(sample_video, clean_audio_fixture, [(0.0, 1.0)], out_mp4, use_gpu=True)
+    # If NVENC failed, warning must be logged with stderr details
+    warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+    if warning_records:
+        assert any("NVENC GPU encoding failed" in r.message for r in warning_records)
+
 
 def test_cut_and_render_missing_input(sample_video, clean_audio_fixture, tmp_path):
     out_mp4 = str(tmp_path / "out.mp4")
@@ -188,3 +214,4 @@ def test_cut_and_render_missing_input(sample_video, clean_audio_fixture, tmp_pat
 
     with pytest.raises(FileNotFoundError):
         cut_and_render_video_nvenc(sample_video, "missing.wav", [(0.0, 1.0)], out_mp4)
+

@@ -7,6 +7,7 @@ import json
 import logging
 import subprocess
 import shutil
+import tempfile
 from typing import Dict, Any, List, Tuple
 
 logger = logging.getLogger(__name__)
@@ -137,6 +138,10 @@ def cut_and_render_video_nvenc(
     if not segments:
         raise ValueError("No speech segments provided for rendering.")
 
+    valid_segments = [(max(0.0, float(s)), float(e)) for s, e in segments if float(e) > max(0.0, float(s))]
+    if not valid_segments:
+        raise ValueError("No valid speech segments provided for rendering.")
+
     if not os.path.exists(video_path):
         raise FileNotFoundError(f"Video file not found: {video_path}")
 
@@ -154,41 +159,55 @@ def cut_and_render_video_nvenc(
     filter_complex_parts = []
     concat_inputs = []
 
-    for idx, (start, end) in enumerate(segments):
+    for idx, (start, end) in enumerate(valid_segments):
         filter_complex_parts.append(f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS[v{idx}];")
         concat_inputs.append(f"[v{idx}]")
 
-    concat_filter = f"{''.join(filter_complex_parts)}{''.join(concat_inputs)}concat=n={len(segments)}:v=1:a=0[outv]"
+    concat_filter = f"{''.join(filter_complex_parts)}{''.join(concat_inputs)}concat=n={len(valid_segments)}:v=1:a=0[outv]"
 
-    def _render(encoder_args: list[str]) -> None:
-        cmd = [
-            "ffmpeg", "-y",
-            "-i", video_path,
-            "-i", clean_audio_wav,
-            "-filter_complex", concat_filter,
-            "-map", "[outv]",
-            "-map", "1:a",
-            *encoder_args,
-            "-c:a", "aac", "-b:a", "320k",
-            "-movflags", "+faststart",
-            output_video_path
-        ]
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        filter_script_path = os.path.join(tmp_dir, "filter_complex.txt")
+        with open(filter_script_path, "w", encoding="utf-8") as f:
+            f.write(concat_filter)
 
-    cpu_encoder_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "19", "-pix_fmt", "yuv420p"]
+        def _render(encoder_args: list[str]) -> None:
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-i", clean_audio_wav,
+                "-filter_complex_script", filter_script_path,
+                "-map", "[outv]",
+                "-map", "1:a",
+                *encoder_args,
+                "-c:a", "aac", "-b:a", "320k",
+                "-shortest",
+                "-movflags", "+faststart",
+                output_video_path
+            ]
+            subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
-    if use_gpu:
-        nvenc_encoder_args = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20", "-pix_fmt", "yuv420p"]
-        try:
-            _render(nvenc_encoder_args)
-            return output_video_path
-        except (subprocess.CalledProcessError, RuntimeError) as exc:
-            logger.warning(
-                "NVENC GPU encoding failed (%s); falling back cleanly to CPU libx264 encoding.",
-                exc
-            )
+        cpu_encoder_args = ["-c:v", "libx264", "-preset", "fast", "-crf", "19", "-pix_fmt", "yuv420p"]
+
+        if use_gpu:
+            nvenc_encoder_args = ["-c:v", "h264_nvenc", "-preset", "p4", "-cq", "20", "-pix_fmt", "yuv420p"]
+            try:
+                _render(nvenc_encoder_args)
+                return output_video_path
+            except subprocess.CalledProcessError as exc:
+                err_msg = exc.stderr.decode(errors="replace") if exc.stderr else str(exc)
+                logger.warning(
+                    "NVENC GPU encoding failed; falling back cleanly to CPU libx264 encoding. Stderr: %s",
+                    err_msg
+                )
+                _render(cpu_encoder_args)
+                return output_video_path
+            except Exception as exc:
+                logger.warning(
+                    "NVENC GPU encoding failed (%s); falling back cleanly to CPU libx264 encoding.",
+                    exc
+                )
+                _render(cpu_encoder_args)
+                return output_video_path
+        else:
             _render(cpu_encoder_args)
             return output_video_path
-    else:
-        _render(cpu_encoder_args)
-        return output_video_path

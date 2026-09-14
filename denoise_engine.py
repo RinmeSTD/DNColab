@@ -148,9 +148,11 @@ def cut_and_crossfade_audio(
 ) -> np.ndarray:
     """
     Slices audio_data (1D mono or 2D stereo shape (channels, samples)) based on kept [start_sec, end_sec] segments.
-    Applies smooth cosine or linear crossfade (crossfade_ms) between consecutive slices to eliminate cut clicks/pops.
+    Applies butt-splice boundary smoothing (anti-pop micro fade-in / fade-out on the boundary samples of each slice)
+    without shrinking or shortening the total audio duration, ensuring len(output_audio) == sum(end - start) * sample_rate
+    exactly matches the video duration.
     Handles empty segments, single segment, and out-of-bound samples safely.
-    Computes crossfades in floating point to prevent dropouts on integer dtypes (int16/int32).
+    Computes smoothing in floating point to prevent dropouts on integer dtypes (int16/int32).
     """
     if audio_data.size == 0 or not segments:
         if audio_data.ndim == 1:
@@ -164,55 +166,46 @@ def cut_and_crossfade_audio(
         start_samp = max(0, min(total_samples, int(round(start_sec * sample_rate))))
         end_samp = max(start_samp, min(total_samples, int(round(end_sec * sample_rate))))
         if end_samp > start_samp:
-            slices.append(audio_data[..., start_samp:end_samp])
+            slices.append(audio_data[..., start_samp:end_samp].copy())
 
     if not slices:
         if audio_data.ndim == 1:
             return np.empty(0, dtype=audio_data.dtype)
         return np.empty((audio_data.shape[0], 0), dtype=audio_data.dtype)
 
-    if len(slices) == 1:
-        return slices[0].copy()
-
     fade_len = int(round(sample_rate * max(0, crossfade_ms) / 1000.0))
-    if fade_len <= 0:
-        return np.concatenate(slices, axis=-1)
+    if fade_len > 0:
+        for s in slices:
+            k = min(fade_len, s.shape[-1] // 2)
+            if k <= 0:
+                continue
 
-    result = slices[0]
-    fade_shape = (1,) * (result.ndim - 1)
+            if curve == "linear":
+                fade_in = np.linspace(0.0, 1.0, k, endpoint=True)
+                fade_out = 1.0 - fade_in
+            else:  # raised cosine
+                t = np.linspace(0.0, np.pi, k, endpoint=True)
+                fade_in = 0.5 * (1.0 - np.cos(t))
+                fade_out = 0.5 * (1.0 + np.cos(t))
 
-    for nxt in slices[1:]:
-        k = min(fade_len, result.shape[-1], nxt.shape[-1])
-        if k <= 0:
-            result = np.concatenate([result, nxt], axis=-1)
-            continue
+            fade_shape = (1,) * (s.ndim - 1)
+            fade_in = fade_in.reshape(fade_shape + (k,))
+            fade_out = fade_out.reshape(fade_shape + (k,))
 
-        if curve == "linear":
-            fade_in = np.linspace(0.0, 1.0, k, endpoint=True)
-            fade_out = 1.0 - fade_in
-        else:  # raised cosine
-            t = np.linspace(0.0, np.pi, k, endpoint=True)
-            fade_out = 0.5 * (1.0 + np.cos(t))
-            fade_in = 0.5 * (1.0 - np.cos(t))
+            head = s[..., :k]
+            tail = s[..., -k:]
 
-        fade_out = fade_out.reshape(fade_shape + (k,))
-        fade_in = fade_in.reshape(fade_shape + (k,))
+            head_float = head.astype(np.float64) * fade_in
+            tail_float = tail.astype(np.float64) * fade_out
 
-        head_r = result[..., :-k]
-        tail_r = result[..., -k:]
-        head_n = nxt[..., :k]
-        tail_n = nxt[..., k:]
+            if np.issubdtype(s.dtype, np.integer):
+                s[..., :k] = np.round(head_float).astype(s.dtype)
+                s[..., -k:] = np.round(tail_float).astype(s.dtype)
+            else:
+                s[..., :k] = head_float.astype(s.dtype)
+                s[..., -k:] = tail_float.astype(s.dtype)
 
-        # Compute overlap in float64 to avoid truncation to 0 on integer dtypes (e.g. int16, int32)
-        overlap_float = tail_r.astype(np.float64) * fade_out + head_n.astype(np.float64) * fade_in
-        if np.issubdtype(result.dtype, np.integer):
-            overlap = np.round(overlap_float).astype(result.dtype)
-        else:
-            overlap = overlap_float.astype(result.dtype)
-
-        result = np.concatenate([head_r, overlap, tail_n], axis=-1)
-
-    return result
+    return np.concatenate(slices, axis=-1)
 
 
 def normalize_loudness(

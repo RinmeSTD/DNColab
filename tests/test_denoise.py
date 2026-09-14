@@ -22,7 +22,7 @@ from denoise_engine import (
 
 
 def test_cut_and_crossfade_audio_shape():
-    """Verify accurate output sample length, shape, crossfade calculation, and no NaN/Inf."""
+    """Verify accurate output sample length, shape, non-shortening alignment, and no NaN/Inf."""
     sr = 16000
     # 5 seconds of test audio
     t = np.linspace(0, 5, 5 * sr, endpoint=False)
@@ -31,11 +31,11 @@ def test_cut_and_crossfade_audio_shape():
     # 2 segments: 1.0s each (16000 samples each)
     segments = [(1.0, 2.0), (3.0, 4.0)]
     crossfade_ms = 30  # 480 samples
-    fade_samples = int(round(sr * crossfade_ms / 1000.0))
 
     out = cut_and_crossfade_audio(audio, sr, segments, crossfade_ms=crossfade_ms)
 
-    expected_len = (16000 + 16000) - fade_samples
+    # Non-shortening butt-splice ensures len(output) == sum(end - start) * sample_rate
+    expected_len = 16000 + 16000
     assert out.ndim == 1
     assert out.shape[0] == expected_len
     assert not np.isnan(out).any()
@@ -43,20 +43,19 @@ def test_cut_and_crossfade_audio_shape():
 
 
 def test_cut_and_crossfade_stereo_shape():
-    """Verify 2D stereo (channels, samples) shape handling and crossfading."""
+    """Verify 2D stereo (channels, samples) shape handling and non-shortening butt-splice."""
     sr = 16000
     channels = 2
     audio = np.random.uniform(-0.5, 0.5, (channels, 5 * sr)).astype(np.float32)
 
     # 3 segments of 1.0s each
     segments = [(0.5, 1.5), (2.0, 3.0), (3.5, 4.5)]
-    crossfade_ms = 20  # 320 samples
-    fade_samples = int(round(sr * crossfade_ms / 1000.0))
+    crossfade_ms = 20
 
     out = cut_and_crossfade_audio(audio, sr, segments, crossfade_ms=crossfade_ms)
 
-    # 3 slices of 16000 samples, 2 crossfades of 320 samples
-    expected_len = (3 * 16000) - (2 * fade_samples)
+    # 3 slices of 16000 samples, non-shortening
+    expected_len = 3 * 16000
     assert out.ndim == 2
     assert out.shape == (channels, expected_len)
     assert not np.isnan(out).any()
@@ -79,16 +78,14 @@ def test_cut_and_crossfade_integer_audio():
 
         # Output dtype must remain identical
         assert out_const.dtype == dtype
-        # Output length verified
-        expected_len = (16000 + 16000) - fade_samples
+        # Output length verified: non-shortening butt-splice exact length
+        expected_len = 16000 + 16000
         assert out_const.shape[0] == expected_len
 
-        # The crossfade region is at index [16000 - fade_samples : 16000]
-        overlap_region = out_const[16000 - fade_samples : 16000]
-        # Under integer truncation bug, overlap would be zero!
-        # With float computation, overlap must stay equal to constant_val
-        assert np.all(overlap_region == constant_val), (
-            f"Expected constant {constant_val} in crossfade overlap for {dtype}, got dropouts/zeros"
+        # Interior region away from boundary fades maintains constant value without truncation
+        interior = out_const[fade_samples : 16000 - fade_samples]
+        assert np.all(interior == constant_val), (
+            f"Expected constant {constant_val} in interior audio for {dtype}, got corruption"
         )
 
         # Also test alternating non-zero tone signal to verify no zero dropouts
@@ -96,9 +93,9 @@ def test_cut_and_crossfade_integer_audio():
         audio_tone = (15000 * np.sin(2 * np.pi * 440 * t)).astype(dtype)
         out_tone = cut_and_crossfade_audio(audio_tone, sr, segments, crossfade_ms=crossfade_ms)
         assert out_tone.dtype == dtype
-        overlap_tone = out_tone[16000 - fade_samples : 16000]
-        # Should not be all zeros
-        assert np.count_nonzero(overlap_tone) > 0.8 * fade_samples
+        assert out_tone.shape[0] == expected_len
+        interior_tone = out_tone[fade_samples : 16000 - fade_samples]
+        assert np.count_nonzero(interior_tone) > 0.8 * len(interior_tone)
 
 
 def test_cut_and_crossfade_empty_and_single():
@@ -124,8 +121,7 @@ def test_cut_and_crossfade_empty_and_single():
     oob_out = cut_and_crossfade_audio(audio, sr, [(-1.0, 0.5), (4.5, 6.0)], crossfade_ms=20)
     # (-1.0, 0.5) clamps to (0.0, 0.5) -> 8000 samples
     # (4.5, 6.0) clamps to (4.5, 5.0) -> 8000 samples
-    fade_samples = int(round(sr * 20 / 1000.0))
-    assert oob_out.shape[0] == (8000 + 8000) - fade_samples
+    assert oob_out.shape[0] == 8000 + 8000
 
     # Invalid segments (end <= start or outside audio)
     invalid_out = cut_and_crossfade_audio(audio, sr, [(3.0, 2.0), (10.0, 12.0)])
