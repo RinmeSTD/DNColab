@@ -62,7 +62,7 @@ Click the button below to launch the interactive studio directly in Google Colab
 #### Colab Workflow:
 1. Open the notebook via the badge above.
 2. In the Colab menu, verify a GPU runtime is selected (**Runtime** -> **Change runtime type** -> **T4 GPU**).
-3. Run **Step 1** to install dependencies (using `uv` for ultra-fast installation) and verify the GPU.
+3. Run **Step 1** to install dependencies (with automatic Rust toolchain setup) and verify the GPU.
 4. Run **Step 2** to mount Google Drive and configure input/output folders.
 5. Place your raw video files in `/content/drive/MyDrive/Interview_Studio/input` (or `./inputs`).
 6. Adjust parameter sliders in **Step 3** and run **Step 4 (Run Batch Queue)**.
@@ -80,7 +80,7 @@ Use the dedicated Kaggle notebook: [`Interview_AI_Studio_Kaggle.ipynb`](Intervie
    - **Accelerator**: Select **GPU P100** or **GPU T4 x2**.
    - **Internet**: Switch to **Internet On**.
 3. (Optional) Attach a Kaggle Dataset containing your raw interview videos. The notebook will auto-detect input videos in `/kaggle/input/`.
-4. Run **Step 1** to install dependencies via `uv`.
+4. Run **Step 1** to install dependencies.
 5. Run **Step 2** to discover dataset paths or initialize `/kaggle/working/inputs`.
 6. Configure settings using the interactive `ipywidgets` GUI dashboard in **Step 3**.
 7. Run **Step 4** to execute batch rendering.
@@ -88,45 +88,59 @@ Use the dedicated Kaggle notebook: [`Interview_AI_Studio_Kaggle.ipynb`](Intervie
 
 ---
 
-### Option 3: Local Installation and CLI Execution
+### Option 3: Local Execution with 1-Click Launchers (PowerShell & Bash)
 
 #### Prerequisites
 - **Python**: 3.10 or higher
 - **FFmpeg and FFprobe**: Installed and available in your system `PATH` ([Download FFmpeg](https://ffmpeg.org/download.html))
 - **GPU (Optional)**: NVIDIA GPU with CUDA for NVENC acceleration (gracefully falls back to CPU `libx264` if unavailable)
 
-#### Installation
+#### 1-Click Launchers
 
-Using `uv` (recommended for ultra-fast dependency resolution):
+The repository includes smart all-in-one launcher scripts that automatically create a virtual environment (`.venv`), install all requirements via `uv` or `pip`, create default input/output directories, and process all videos:
+
+**Windows (PowerShell):**
+```powershell
+# Run with default folders (processes ./inputs/ into ./outputs/)
+.\run.ps1
+
+# Or pass custom arguments directly
+.\run.ps1 --input D:\RawVideos --output D:\CleanVideos --min-silence 0.5 --padding 0.2
+```
+
+**Linux / macOS / WSL (Bash):**
+```bash
+# Make script executable
+chmod +x run.sh
+
+# Run with default folders (processes ./inputs/ into ./outputs/)
+./run.sh
+
+# Or pass custom arguments directly
+./run.sh --input /path/to/raw --output /path/to/clean --min-silence 0.8
+```
+
+---
+
+### Option 4: Manual Local CLI Execution
+
 ```bash
 # 1. Clone the repository
 git clone https://github.com/RinmeSTD/DNColab.git
 cd DNColab
 
-# 2. Create and activate a virtual environment with uv
-uv venv
-# Linux/macOS:
-source .venv/bin/activate
-# Windows (PowerShell):
-.venv\Scripts\Activate.ps1
-
-# 3. Install required dependencies
-uv pip install -r requirements.txt
-```
-
-Standard pip installation:
-```bash
+# 2. Create and activate a virtual environment
 python -m venv venv
 # Windows: .\venv\Scripts\Activate.ps1 | Linux/macOS: source venv/bin/activate
+
+# 3. Install required dependencies
 pip install -r requirements.txt
+
+# 4. Run batch processor
+python interview_processor.py --input ./inputs --output ./outputs
 ```
 
-#### CLI Usage Examples
-
-**Basic Batch Run (Default parameters with GPU NVENC and DeepFilterNet 3):**
-```bash
-python interview_processor.py --input ./raw_interviews --output ./processed_interviews
-```
+#### CLI Command Examples
 
 **Podcast / Faster Paced Cuts (Shorter silence threshold and tighter padding):**
 ```bash
