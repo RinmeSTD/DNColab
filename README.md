@@ -1,6 +1,6 @@
-# 🎬 Interview AI Studio: Natural Silence Remover & Neural Audio Denoiser
+# Interview AI Studio: Natural Silence Remover and Neural Audio Denoiser
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MeowVid/Interview_AI_Studio/blob/main/Interview_AI_Studio.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/RinmeSTD/DNColab/blob/master/Interview_AI_Studio.ipynb)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -9,7 +9,7 @@
 
 ---
 
-## 🏗️ Pipeline Architecture
+## Pipeline Architecture
 
 ```mermaid
 flowchart TD
@@ -49,40 +49,55 @@ flowchart TD
 
 ---
 
-## ⚡ Quickstart Guide
+## Quickstart Guide
 
 ### Option 1: Run in Google Colab (1-Click, Free GPU)
-1. Click the **Open in Colab** badge: [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/MeowVid/Interview_AI_Studio/blob/main/Interview_AI_Studio.ipynb)
-2. In the Colab menu, ensure a GPU runtime is selected (**Runtime** ➔ **Change runtime type** ➔ **T4 GPU**).
-3. Run **Step 1** to install dependencies and verify the GPU.
+
+Click the button below to launch the interactive studio directly in Google Colab:
+
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/RinmeSTD/DNColab/blob/master/Interview_AI_Studio.ipynb)
+
+#### Colab Workflow:
+1. Open the notebook via the badge above.
+2. In the Colab menu, verify a GPU runtime is selected (**Runtime** -> **Change runtime type** -> **T4 GPU**).
+3. Run **Step 1** to install dependencies (using `uv` for 10x faster installation) and verify the GPU.
 4. Run **Step 2** to mount Google Drive and configure input/output folders.
-5. Upload your video files into `/content/drive/MyDrive/Interview_Studio/input` (or `./inputs`).
-6. Adjust parameters in **Step 3** and run **Step 4 (Run Batch Queue)**.
-7. Preview your cut video directly in the notebook and download the `.zip` archive in **Step 5**.
+5. Place your raw video files in `/content/drive/MyDrive/Interview_Studio/input` (or `./inputs`).
+6. Adjust parameter sliders in **Step 3** and run **Step 4 (Run Batch Queue)**.
+7. Preview the processed cut video in the embedded player and download the `.zip` archive in **Step 5**.
 
 ---
 
-### Option 2: Local Installation & CLI Execution
+### Option 2: Local Installation and CLI Execution
 
 #### Prerequisites
 - **Python**: 3.10 or higher
-- **FFmpeg & FFprobe**: Installed and available in your system `PATH` ([Download FFmpeg](https://ffmpeg.org/download.html))
+- **FFmpeg and FFprobe**: Installed and available in your system `PATH` ([Download FFmpeg](https://ffmpeg.org/download.html))
 - **GPU (Optional)**: NVIDIA GPU with CUDA for NVENC acceleration (gracefully falls back to CPU `libx264` if unavailable)
 
 #### Installation
+
+Using `uv` (recommended for ultra-fast dependency resolution):
 ```bash
 # 1. Clone the repository
-git clone https://github.com/MeowVid/Interview_AI_Studio.git
-cd Interview_AI_Studio
+git clone https://github.com/RinmeSTD/DNColab.git
+cd DNColab
 
-# 2. Create and activate a virtual environment
-python -m venv venv
+# 2. Create and activate a virtual environment with uv
+uv venv
 # Linux/macOS:
-source venv/bin/activate
+source .venv/bin/activate
 # Windows (PowerShell):
-.\venv\Scripts\Activate.ps1
+.venv\Scripts\Activate.ps1
 
-# 3. Install required Python packages
+# 3. Install required dependencies
+uv pip install -r requirements.txt
+```
+
+Standard pip installation:
+```bash
+python -m venv venv
+# Windows: .\venv\Scripts\Activate.ps1 | Linux/macOS: source venv/bin/activate
 pip install -r requirements.txt
 ```
 
@@ -93,7 +108,7 @@ pip install -r requirements.txt
 python interview_processor.py --input ./raw_interviews --output ./processed_interviews
 ```
 
-**Podcast / Faster Paced Cuts (Shorter silence threshold & tighter padding):**
+**Podcast / Faster Paced Cuts (Shorter silence threshold and tighter padding):**
 ```bash
 python interview_processor.py \
   --input ./podcast_raw \
@@ -112,7 +127,7 @@ python interview_processor.py \
   --padding 0.30
 ```
 
-**Silence Removal Only (Skip AI denoising):**
+**Silence Removal Only (Skip AI speech denoising):**
 ```bash
 python interview_processor.py \
   --input ./raw_videos \
@@ -130,7 +145,7 @@ python interview_processor.py \
 
 ---
 
-## 🎞️ NLE Timeline Integration Tutorial
+## NLE Timeline Integration Tutorial
 
 Alongside the rendered `.mp4` video, Interview AI Studio automatically exports:
 - `[video_name]_timeline.xml`: **Final Cut Pro 7 XML** sequence.
@@ -142,19 +157,19 @@ These timeline files allow video editors to import the cuts directly into non-li
 
 1. **Import the XML Sequence**:
    - Open your project in Adobe Premiere Pro.
-   - Go to **File** ➔ **Import...** (or press `Ctrl+I` / `Cmd+I`).
+   - Go to **File** -> **Import...** (or press `Ctrl+I` / `Cmd+I`).
    - Select the generated `[video_name]_timeline.xml` file.
 2. **Media Relinking (If prompted)**:
    - Premiere Pro will import a sequence called `Interview_Cut` and the linked source media item.
    - If a "Link Media" dialog appears, point Premiere to the original raw video file.
 3. **Open Timeline**:
-   - Double-click the imported sequence. You will see every speech segment as an individual cut clip properly placed on Video Track 1 and Audio Tracks 1 & 2.
+   - Double-click the imported sequence. You will see every speech segment as an individual cut clip properly placed on Video Track 1 and Audio Tracks 1 and 2.
 
 ### 2. DaVinci Resolve Import
 
 1. **Import Timeline**:
    - Open your project in DaVinci Resolve.
-   - In the top menu bar, select **File** ➔ **Import Timeline** ➔ **Import AAF/EDL/XML...** (or press `Ctrl+Shift+I` / `Cmd+Shift+I`).
+   - In the top menu bar, select **File** -> **Import Timeline** -> **Import AAF/EDL/XML...** (or press `Ctrl+Shift+I` / `Cmd+Shift+I`).
    - Select the `[video_name]_timeline.xml` (or `[video_name]_timeline.edl`).
 2. **Timeline Settings**:
    - In the "Load XML..." options dialog, verify the timeline framerate matches your source video framerate (e.g. 23.976, 25, 29.97, or 30 fps).
@@ -165,7 +180,7 @@ These timeline files allow video editors to import the cuts directly into non-li
 
 ---
 
-### 3. Expanding & Contracting Cuts with Timeline Handles
+### 3. Expanding and Contracting Cuts with Timeline Handles
 
 Because Interview AI Studio builds non-destructive timelines pointing to the **original master media file**:
 - **Full Handles Available**: The source media behind each cut point is completely preserved.
@@ -179,7 +194,7 @@ Because Interview AI Studio builds non-destructive timelines pointing to the **o
 
 ---
 
-## ⚙️ Configuration Parameters Reference
+## Configuration Parameters Reference
 
 | CLI Option | Colab Form Parameter | Default | Allowed Values / Range | Description |
 | :--- | :--- | :--- | :--- | :--- |
@@ -196,7 +211,7 @@ Because Interview AI Studio builds non-destructive timelines pointing to the **o
 
 ---
 
-## 📊 Summary Metrics & Logging
+## Summary Metrics and Logging
 
 Every batch execution writes a comprehensive JSON log to `{OUTPUT_DIR}/processing_summary.json`:
 ```json
@@ -222,7 +237,7 @@ Every batch execution writes a comprehensive JSON log to `{OUTPUT_DIR}/processin
 
 ---
 
-## 🤝 Contributing & License
+## Contributing and License
 
 Contributions are welcome! Please feel free to submit pull requests or open issues for feature requests.
 Licensed under the [MIT License](LICENSE).
