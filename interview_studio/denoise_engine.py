@@ -12,15 +12,48 @@ import numpy as np
 
 def denoise_audio_deepfilter(input_wav: str, output_wav: str) -> str:
     """
-    Denoises audio using DeepFilterNet 3 (df.enhance).
-    Falls back to `df-enhance` CLI command if available.
-    Falls back gracefully to file copy with warning if neither is installed.
+    Denoises audio using DeepFilterNet 3.
+    1. Checks for standalone precompiled `deep-filter` or `df-enhance` CLI binaries.
+    2. Falls back to DeepFilterNet Python API (df.enhance).
+    3. Falls back gracefully to file copy with warning if neither is installed.
     """
     out_dir = os.path.dirname(os.path.abspath(output_wav)) or "."
     os.makedirs(out_dir, exist_ok=True)
     fallback_reason = None
 
-    # 1. Attempt using DeepFilterNet Python API (df.enhance)
+    # 1. Attempt using standalone CLI command (`deep-filter` or `df-enhance`)
+    cli_candidates = ["deep-filter", "df-enhance"]
+    local_bin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".bin")
+    if os.path.isdir(local_bin_dir):
+        for name in ["deep-filter", "deep-filter.exe", "df-enhance", "df-enhance.exe"]:
+            p = os.path.join(local_bin_dir, name)
+            if os.path.isfile(p):
+                cli_candidates.insert(0, p)
+
+    for cli_cmd in cli_candidates:
+        cli_path = shutil.which(cli_cmd) if not os.path.isabs(cli_cmd) else (cli_cmd if os.path.isfile(cli_cmd) else None)
+        if cli_path:
+            try:
+                res = subprocess.run([cli_path, input_wav, "-o", out_dir], capture_output=True, text=True)
+                if res.returncode == 0:
+                    if os.path.exists(output_wav):
+                        return output_wav
+                    base = os.path.splitext(os.path.basename(input_wav))[0]
+                    candidates = [
+                        os.path.join(out_dir, f"{base}.wav"),
+                        os.path.join(out_dir, f"{base}_enhanced.wav"),
+                        os.path.join(out_dir, f"{base}_DeepFilterNet3.wav"),
+                        os.path.join(out_dir, f"{base}_df.wav"),
+                    ]
+                    for cand in candidates:
+                        if os.path.exists(cand):
+                            if os.path.abspath(cand) != os.path.abspath(output_wav):
+                                shutil.move(cand, output_wav)
+                            return output_wav
+            except Exception as e:
+                fallback_reason = f"{cli_cmd} CLI error: {e}"
+
+    # 2. Attempt using DeepFilterNet Python API (df.enhance)
     try:
         import df.enhance as df_enhance
 
@@ -33,29 +66,8 @@ def denoise_audio_deepfilter(input_wav: str, output_wav: str) -> str:
     except ImportError:
         pass
     except Exception as e:
-        fallback_reason = f"DeepFilterNet Python API error: {e}"
-
-    # 2. Attempt using df-enhance CLI command if available
-    cli_path = shutil.which("df-enhance")
-    if cli_path:
-        try:
-            res = subprocess.run([cli_path, input_wav, "-o", out_dir], capture_output=True)
-            if res.returncode == 0:
-                if os.path.exists(output_wav):
-                    return output_wav
-                # Check if output file was created under base name
-                base = os.path.splitext(os.path.basename(input_wav))[0]
-                candidates = [
-                    os.path.join(out_dir, f"{base}.wav"),
-                    os.path.join(out_dir, f"{base}_enhanced.wav"),
-                ]
-                for cand in candidates:
-                    if os.path.exists(cand):
-                        if os.path.abspath(cand) != os.path.abspath(output_wav):
-                            shutil.move(cand, output_wav)
-                        return output_wav
-        except Exception as e:
-            fallback_reason = f"df-enhance CLI error: {e}"
+        if not fallback_reason:
+            fallback_reason = f"DeepFilterNet Python API error: {e}"
 
     # 3. Fallback: Copy unenhanced file
     if os.path.abspath(input_wav) != os.path.abspath(output_wav):

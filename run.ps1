@@ -3,7 +3,7 @@
     Interview AI Studio - All-in-One Launcher for Windows (PowerShell)
 .DESCRIPTION
     Automatically sets up virtual environment, installs dependencies via uv/pip,
-    and runs batch video processing.
+    downloads precompiled DeepFilterNet binary if needed, and runs batch video processing.
 .EXAMPLE
     .\run.ps1
     .\run.ps1 --input D:\Videos --output D:\Output --min-silence 0.5
@@ -40,7 +40,23 @@ if (-not (Get-Command "ffmpeg" -ErrorAction SilentlyContinue)) {
     Write-Warning "       Please install FFmpeg (e.g. winget install Gyan.FFmpeg or download from ffmpeg.org)."
 }
 
-# 3. Detect uv or fallback to standard venv/pip
+# 3. Setup .bin directory and precompiled DeepFilterNet binary
+$BinDir = Join-Path $ScriptDir ".bin"
+$DeepFilterExe = Join-Path $BinDir "deep-filter.exe"
+if (-not (Get-Command "deep-filter" -ErrorAction SilentlyContinue) -and -not (Test-Path $DeepFilterExe)) {
+    Write-Host "[SETUP] Downloading precompiled DeepFilterNet binary for Windows..." -ForegroundColor Yellow
+    if (-not (Test-Path $BinDir)) { New-Item -ItemType Directory -Path $BinDir -Force | Out-Null }
+    try {
+        $DfUrl = "https://github.com/Rikorose/DeepFilterNet/releases/download/v0.5.6/deep-filter-0.5.6-x86_64-pc-windows-msvc.exe"
+        Invoke-WebRequest -Uri $DfUrl -OutFile $DeepFilterExe -UseBasicParsing
+        Write-Host "[SETUP] DeepFilterNet binary downloaded successfully." -ForegroundColor Green
+    } catch {
+        Write-Warning "[WARN] Could not auto-download DeepFilterNet binary: $_"
+    }
+}
+$env:PATH = "$BinDir;$env:PATH"
+
+# 4. Detect uv or fallback to standard venv/pip
 $UseUv = $false
 if (Get-Command "uv" -ErrorAction SilentlyContinue) {
     $UseUv = $true
@@ -49,7 +65,7 @@ if (Get-Command "uv" -ErrorAction SilentlyContinue) {
 $VenvDir = Join-Path $ScriptDir ".venv"
 $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
 
-# 4. Create virtual environment if missing
+# 5. Create virtual environment if missing
 if (-not (Test-Path $VenvPython)) {
     Write-Host "[SETUP] Initializing virtual environment in .venv..." -ForegroundColor Yellow
     if ($UseUv) {
@@ -60,7 +76,7 @@ if (-not (Test-Path $VenvPython)) {
     }
 }
 
-# 5. Install / verify dependencies
+# 6. Install / verify dependencies
 $ReqFile = Join-Path $ScriptDir "requirements.txt"
 $FlagFile = Join-Path $VenvDir ".installed_requirements"
 
@@ -86,7 +102,7 @@ if ($NeedsInstall) {
     Write-Host "[SETUP] Dependencies installed successfully." -ForegroundColor Green
 }
 
-# 6. Resolve input/output arguments
+# 7. Resolve input/output arguments
 $TargetArgs = @()
 if ($ProcessArgs -and $ProcessArgs.Count -gt 0) {
     $TargetArgs = $ProcessArgs
@@ -104,7 +120,7 @@ if ($ProcessArgs -and $ProcessArgs.Count -gt 0) {
     $TargetArgs = @("--input", $InputDir, "--output", $OutputDir)
 }
 
-# 7. Execute processor
+# 8. Execute processor
 $ProcessorScript = Join-Path $ScriptDir "interview_processor.py"
 Write-Host "`n[RUN] Starting Interview AI Studio processor..." -ForegroundColor Cyan
 & $VenvPython $ProcessorScript @TargetArgs
