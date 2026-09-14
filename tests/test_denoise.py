@@ -63,6 +63,44 @@ def test_cut_and_crossfade_stereo_shape():
     assert not np.isinf(out).any()
 
 
+def test_cut_and_crossfade_integer_audio():
+    """Verify integer audio (int16 and int32) crossfades without zero-dropout truncation."""
+    sr = 16000
+    crossfade_ms = 30
+    fade_samples = int(round(sr * crossfade_ms / 1000.0))  # 480 samples
+
+    for dtype in [np.int16, np.int32]:
+        # Constant non-zero signal (e.g., 10000)
+        constant_val = 10000
+        audio_const = np.full(5 * sr, constant_val, dtype=dtype)
+        segments = [(1.0, 2.0), (3.0, 4.0)]
+
+        out_const = cut_and_crossfade_audio(audio_const, sr, segments, crossfade_ms=crossfade_ms)
+
+        # Output dtype must remain identical
+        assert out_const.dtype == dtype
+        # Output length verified
+        expected_len = (16000 + 16000) - fade_samples
+        assert out_const.shape[0] == expected_len
+
+        # The crossfade region is at index [16000 - fade_samples : 16000]
+        overlap_region = out_const[16000 - fade_samples : 16000]
+        # Under integer truncation bug, overlap would be zero!
+        # With float computation, overlap must stay equal to constant_val
+        assert np.all(overlap_region == constant_val), (
+            f"Expected constant {constant_val} in crossfade overlap for {dtype}, got dropouts/zeros"
+        )
+
+        # Also test alternating non-zero tone signal to verify no zero dropouts
+        t = np.linspace(0, 5, 5 * sr, endpoint=False)
+        audio_tone = (15000 * np.sin(2 * np.pi * 440 * t)).astype(dtype)
+        out_tone = cut_and_crossfade_audio(audio_tone, sr, segments, crossfade_ms=crossfade_ms)
+        assert out_tone.dtype == dtype
+        overlap_tone = out_tone[16000 - fade_samples : 16000]
+        # Should not be all zeros
+        assert np.count_nonzero(overlap_tone) > 0.8 * fade_samples
+
+
 def test_cut_and_crossfade_empty_and_single():
     """Verify edge cases: empty segments, single segment, and out-of-bound segments."""
     sr = 16000
@@ -245,16 +283,30 @@ def test_denoise_audio_resemble_fallback():
 
 
 def test_denoise_audio_resemble_mock():
-    """Verify resemble uses resemble_enhance when module is available."""
+    """Verify resemble handles 1D mono conversion and 2D tensor output for torchaudio.save."""
     mock_inference = MagicMock()
     mock_resemble = MagicMock()
     mock_resemble.enhancer.inference = mock_inference
 
-    mock_inference.denoise.return_value = (MagicMock(), 44100)
-    mock_inference.enhance.return_value = (MagicMock(), 44100)
+    # Simulate 1D enhanced tensor output from resemble_enhance
+    enhanced_1d = MagicMock()
+    enhanced_1d.ndim = 1
+    unsqueezed_2d = MagicMock()
+    unsqueezed_2d.ndim = 2
+    enhanced_1d.unsqueeze.return_value = unsqueezed_2d
+
+    mock_inference.enhance.return_value = (enhanced_1d, 44100)
+
+    # Simulate torchaudio.load returning stereo 2D waveform (2, 44100)
+    stereo_wave = MagicMock()
+    stereo_wave.ndim = 2
+    stereo_wave.shape = (2, 44100)
+    mono_wave = MagicMock()
+    mono_wave.ndim = 1
+    stereo_wave.mean.return_value = mono_wave
 
     mock_torchaudio = MagicMock()
-    mock_torchaudio.load.return_value = (MagicMock(), 44100)
+    mock_torchaudio.load.return_value = (stereo_wave, 44100)
 
     mock_torch = MagicMock()
     mock_torch.cuda.is_available.return_value = False
@@ -278,5 +330,27 @@ def test_denoise_audio_resemble_mock():
             res = denoise_audio_resemble(input_wav, output_wav)
 
         assert res == output_wav
-        mock_torchaudio.load.assert_called_once()
-        mock_torchaudio.save.assert_called_once()
+        # Verify stereo was averaged to mono
+        stereo_wave.mean.assert_called_once_with(dim=0)
+        # Verify enhance was called with mono wave
+        mock_inference.enhance.assert_called_once()
+        assert mock_inference.enhance.call_args[0][0] == mono_wave
+        # Verify torchaudio.save received the unsqueezed 2D tensor
+        mock_torchaudio.save.assert_called_once_with(output_wav, unsqueezed_2d, 44100)
+
+
+def test_denoise_in_place_copy_protection():
+    """Verify in-place copy (input_wav == output_wav) avoids SameFileError on fallback."""
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        target_wav = os.path.join(tmp_dir, "audio.wav")
+        with open(target_wav, "wb") as f:
+            f.write(b"SAMPLEAUDIO")
+
+        with patch("shutil.which", return_value=None):
+            with pytest.warns(UserWarning):
+                res_df = denoise_audio_deepfilter(target_wav, target_wav)
+            assert res_df == target_wav
+
+        with pytest.warns(UserWarning):
+            res_resemble = denoise_audio_resemble(target_wav, target_wav)
+        assert res_resemble == target_wav

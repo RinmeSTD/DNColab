@@ -19,6 +19,7 @@ def denoise_audio_deepfilter(input_wav: str, output_wav: str) -> str:
     """
     out_dir = os.path.dirname(os.path.abspath(output_wav)) or "."
     os.makedirs(out_dir, exist_ok=True)
+    fallback_reason = None
 
     # 1. Attempt using DeepFilterNet Python API (df.enhance)
     try:
@@ -33,7 +34,7 @@ def denoise_audio_deepfilter(input_wav: str, output_wav: str) -> str:
     except ImportError:
         pass
     except Exception as e:
-        warnings.warn(f"DeepFilterNet Python API failed ({e}), checking CLI.", UserWarning)
+        fallback_reason = f"DeepFilterNet Python API error: {e}"
 
     # 2. Attempt using df-enhance CLI command if available
     cli_path = shutil.which("df-enhance")
@@ -51,19 +52,21 @@ def denoise_audio_deepfilter(input_wav: str, output_wav: str) -> str:
                 ]
                 for cand in candidates:
                     if os.path.exists(cand):
-                        if cand != output_wav:
+                        if os.path.abspath(cand) != os.path.abspath(output_wav):
                             shutil.move(cand, output_wav)
                         return output_wav
         except Exception as e:
-            warnings.warn(f"df-enhance CLI execution failed ({e}).", UserWarning)
+            fallback_reason = f"df-enhance CLI error: {e}"
 
     # 3. Fallback gracefully to file copy
-    warnings.warn(
-        "DeepFilterNet is not installed and 'df-enhance' CLI was not found. "
-        "Falling back to unenhanced audio copy.",
-        UserWarning,
-    )
-    shutil.copyfile(input_wav, output_wav)
+    if fallback_reason:
+        warn_msg = f"DeepFilterNet enhancement unavailable ({fallback_reason}). Falling back to unenhanced audio copy."
+    else:
+        warn_msg = "DeepFilterNet is not installed and 'df-enhance' CLI was not found. Falling back to unenhanced audio copy."
+    warnings.warn(warn_msg, UserWarning)
+
+    if os.path.abspath(input_wav) != os.path.abspath(output_wav):
+        shutil.copyfile(input_wav, output_wav)
     return output_wav
 
 
@@ -79,6 +82,7 @@ def denoise_audio_resemble(
     """
     out_dir = os.path.dirname(os.path.abspath(output_wav)) or "."
     os.makedirs(out_dir, exist_ok=True)
+    fallback_reason = None
 
     # 1. Attempt using resemble_enhance Python API
     try:
@@ -88,6 +92,15 @@ def denoise_audio_resemble(
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dwav, sr = torchaudio.load(input_wav)
+
+        # Convert to 1D mono tensor (samples,) for resemble_enhance
+        if hasattr(dwav, "ndim") and dwav.ndim > 1:
+            if dwav.shape[0] > 1:
+                dwav = dwav.mean(dim=0)
+            else:
+                dwav = dwav.squeeze(0)
+        elif hasattr(dwav, "squeeze"):
+            dwav = dwav.squeeze()
 
         if hasattr(resemble_inf, "enhance"):
             try:
@@ -101,19 +114,28 @@ def denoise_audio_resemble(
         else:
             raise AttributeError("resemble_enhance.enhancer.inference has neither enhance nor denoise")
 
+        # Ensure enhanced tensor is 2D (1, samples) for torchaudio.save
+        if hasattr(enhanced, "ndim") and enhanced.ndim == 1:
+            enhanced = enhanced.unsqueeze(0)
+        elif hasattr(enhanced, "unsqueeze") and getattr(enhanced, "ndim", None) is None:
+            enhanced = enhanced.unsqueeze(0)
+
         torchaudio.save(output_wav, enhanced, new_sr)
         return output_wav
     except ImportError:
         pass
     except Exception as e:
-        warnings.warn(f"resemble_enhance runtime error ({e}).", UserWarning)
+        fallback_reason = f"resemble_enhance runtime error: {e}"
 
     # 2. Fallback gracefully to file copy
-    warnings.warn(
-        "resemble_enhance is not installed. Falling back to unenhanced audio copy.",
-        UserWarning,
-    )
-    shutil.copyfile(input_wav, output_wav)
+    if fallback_reason:
+        warn_msg = f"resemble_enhance enhancement unavailable ({fallback_reason}). Falling back to unenhanced audio copy."
+    else:
+        warn_msg = "resemble_enhance is not installed. Falling back to unenhanced audio copy."
+    warnings.warn(warn_msg, UserWarning)
+
+    if os.path.abspath(input_wav) != os.path.abspath(output_wav):
+        shutil.copyfile(input_wav, output_wav)
     return output_wav
 
 
@@ -128,6 +150,7 @@ def cut_and_crossfade_audio(
     Slices audio_data (1D mono or 2D stereo shape (channels, samples)) based on kept [start_sec, end_sec] segments.
     Applies smooth cosine or linear crossfade (crossfade_ms) between consecutive slices to eliminate cut clicks/pops.
     Handles empty segments, single segment, and out-of-bound samples safely.
+    Computes crossfades in floating point to prevent dropouts on integer dtypes (int16/int32).
     """
     if audio_data.size == 0 or not segments:
         if audio_data.ndim == 1:
@@ -172,15 +195,21 @@ def cut_and_crossfade_audio(
             fade_out = 0.5 * (1.0 + np.cos(t))
             fade_in = 0.5 * (1.0 - np.cos(t))
 
-        fade_out = fade_out.reshape(fade_shape + (k,)).astype(result.dtype)
-        fade_in = fade_in.reshape(fade_shape + (k,)).astype(result.dtype)
+        fade_out = fade_out.reshape(fade_shape + (k,))
+        fade_in = fade_in.reshape(fade_shape + (k,))
 
         head_r = result[..., :-k]
         tail_r = result[..., -k:]
         head_n = nxt[..., :k]
         tail_n = nxt[..., k:]
 
-        overlap = tail_r * fade_out + head_n * fade_in
+        # Compute overlap in float64 to avoid truncation to 0 on integer dtypes (e.g. int16, int32)
+        overlap_float = tail_r.astype(np.float64) * fade_out + head_n.astype(np.float64) * fade_in
+        if np.issubdtype(result.dtype, np.integer):
+            overlap = np.round(overlap_float).astype(result.dtype)
+        else:
+            overlap = overlap_float.astype(result.dtype)
+
         result = np.concatenate([head_r, overlap, tail_n], axis=-1)
 
     return result
