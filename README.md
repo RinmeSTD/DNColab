@@ -1,6 +1,6 @@
 # Interview AI Studio: Natural Silence Remover and Neural Audio Denoiser
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/RinmeSTD/DNColab/blob/master/Interview_AI_Studio.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/RinmeSTD/DNColab/blob/main/Interview_AI_Studio.ipynb)
 [![Kaggle Notebook](https://img.shields.io/badge/Kaggle-Notebook-blue?logo=kaggle&logoColor=white)](Interview_AI_Studio_Kaggle.ipynb)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
@@ -51,13 +51,45 @@ flowchart TD
 
 ---
 
+## Repository Structure
+
+```
+DNColab/
+|-- interview_studio/                 # Modular Python engine package
+|   |-- __init__.py                   # Package exports and version info
+|   |-- vad_engine.py                 # Silero VAD v5 speech segmentation & pause bridging
+|   |-- denoise_engine.py             # DeepFilterNet 3 / Resemble & EBU R128 audio engine
+|   |-- timeline_exporter.py          # Final Cut Pro 7 XML & CMX 3600 EDL generators
+|   |-- video_engine.py               # FFprobe metadata & NVENC / CPU video cutting
+|   `-- processor.py                  # Batch pipeline orchestrator & error isolation
+|-- notebooks/                        # Jupyter / Colab / Kaggle cloud notebooks
+|   |-- Interview_AI_Studio.ipynb         # Google Colab 1-click cloud studio
+|   `-- Interview_AI_Studio_Kaggle.ipynb  # Kaggle interactive widgets studio
+|-- tests/                            # Comprehensive automated test suite (70 tests)
+|-- docs/                             # Architecture designs and implementation specs
+|-- Interview_AI_Studio.ipynb         # Root Colab notebook (direct badge link)
+|-- Interview_AI_Studio_Kaggle.ipynb  # Root Kaggle notebook
+|-- interview_processor.py            # Root CLI launcher
+|-- vad_engine.py                     # Root compatibility wrapper
+|-- denoise_engine.py                 # Root compatibility wrapper
+|-- timeline_exporter.py              # Root compatibility wrapper
+|-- video_engine.py                   # Root compatibility wrapper
+|-- run.ps1                           # 1-Click Windows PowerShell launcher
+|-- run.sh                            # 1-Click Linux / macOS Bash launcher
+|-- requirements.txt                  # Python dependencies
+|-- LICENSE                           # MIT License
+`-- README.md                         # Documentation
+```
+
+---
+
 ## Quickstart Guide
 
 ### Option 1: Run in Google Colab (1-Click, Free GPU)
 
 Click the button below to launch the interactive studio directly in Google Colab:
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/RinmeSTD/DNColab/blob/master/Interview_AI_Studio.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/RinmeSTD/DNColab/blob/main/Interview_AI_Studio.ipynb)
 
 #### Colab Workflow:
 1. Open the notebook via the badge above.
@@ -72,7 +104,7 @@ Click the button below to launch the interactive studio directly in Google Colab
 
 ### Option 2: Run in Kaggle (GPU P100 / T4 x2)
 
-Use the dedicated Kaggle notebook: [`Interview_AI_Studio_Kaggle.ipynb`](Interview_AI_Studio_Kaggle.ipynb)
+Use the dedicated Kaggle notebook: [`Interview_AI_Studio_Kaggle.ipynb`](Interview_AI_Studio_Kaggle.ipynb) (or [`notebooks/Interview_AI_Studio_Kaggle.ipynb`](notebooks/Interview_AI_Studio_Kaggle.ipynb))
 
 #### Kaggle Workflow:
 1. Upload `Interview_AI_Studio_Kaggle.ipynb` to Kaggle (**New Notebook** -> **File** -> **Import Notebook**).
@@ -84,7 +116,7 @@ Use the dedicated Kaggle notebook: [`Interview_AI_Studio_Kaggle.ipynb`](Intervie
 5. Run **Step 2** to discover dataset paths or initialize `/kaggle/working/inputs`.
 6. Configure settings using the interactive `ipywidgets` GUI dashboard in **Step 3**.
 7. Run **Step 4** to execute batch rendering.
-8. In **Step 5**, all output cut videos, XMLs, and EDLs are packaged into `Interview_AI_Studio_Outputs.zip` and appear in the Kaggle **Output** sidebar tab for instant download.
+88. In **Step 5**, all output cut videos, XMLs, and EDLs are packaged into `Interview_AI_Studio_Outputs.zip` and appear in the Kaggle **Output** sidebar tab for instant download.
 
 ---
 
@@ -219,12 +251,12 @@ These timeline files allow video editors to import the cuts directly into non-li
 Because Interview AI Studio builds non-destructive timelines pointing to the **original master media file**:
 - **Full Handles Available**: The source media behind each cut point is completely preserved.
 - **Expanding a Cut (Adding Lead-in/Lead-out)**:
-  - In Premiere Pro or DaVinci Resolve, select the **Selection Tool** (`V`) or **Ripple Edit Tool** (`B`).
-  - Click and drag the head or tail of any clip to extend it earlier or later. You have access to every frame of the original recording.
+   - In Premiere Pro or DaVinci Resolve, select the **Selection Tool** (`V`) or **Ripple Edit Tool** (`B`).
+   - Click and drag the head or tail of any clip to extend it earlier or later. You have access to every frame of the original recording.
 - **Rolling Edits**:
-  - Use the **Rolling Edit Tool** (`N`) to adjust the cut point between two speech segments simultaneously without altering the overall timeline duration.
+   - Use the **Rolling Edit Tool** (`N`) to adjust the cut point between two speech segments simultaneously without altering the overall timeline duration.
 - **Slip Tool**:
-  - Use the **Slip Tool** (`Y`) to shift the content of a speech segment earlier or later within its timeline boundary.
+   - Use the **Slip Tool** (`Y`) to shift the content of a speech segment earlier or later within its timeline boundary.
 
 ---
 
