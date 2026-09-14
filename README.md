@@ -1,6 +1,7 @@
 # Interview AI Studio: Natural Silence Remover and Neural Audio Denoiser
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/RinmeSTD/DNColab/blob/master/Interview_AI_Studio.ipynb)
+[![Kaggle Notebook](https://img.shields.io/badge/Kaggle-Notebook-blue?logo=kaggle&logoColor=white)](Interview_AI_Studio_Kaggle.ipynb)
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.0%2B-ee4c2c.svg)](https://pytorch.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -17,7 +18,8 @@ flowchart TD
     B --> C["Audio Track Extraction (48kHz WAV & 16kHz VAD Mono)"]
     
     subgraph AudioEnhancement ["1. AI Audio Enhancement"]
-        C --> D{"Denoise Engine"}
+        D{"Denoise Engine"}
+        C --> D
         D -->|"DeepFilterNet3 (Default)"| E["DeepFilterNet 3 (Full-band 48kHz Neural Filter)"]
         D -->|"ResembleEnhance"| F["Resemble Enhance (Deep Generative Denoiser)"]
         D -->|"None"| G["Bypass (Original Audio Kept)"]
@@ -60,7 +62,7 @@ Click the button below to launch the interactive studio directly in Google Colab
 #### Colab Workflow:
 1. Open the notebook via the badge above.
 2. In the Colab menu, verify a GPU runtime is selected (**Runtime** -> **Change runtime type** -> **T4 GPU**).
-3. Run **Step 1** to install dependencies (using `uv` for 10x faster installation) and verify the GPU.
+3. Run **Step 1** to install dependencies (using `uv` for ultra-fast installation) and verify the GPU.
 4. Run **Step 2** to mount Google Drive and configure input/output folders.
 5. Place your raw video files in `/content/drive/MyDrive/Interview_Studio/input` (or `./inputs`).
 6. Adjust parameter sliders in **Step 3** and run **Step 4 (Run Batch Queue)**.
@@ -68,7 +70,25 @@ Click the button below to launch the interactive studio directly in Google Colab
 
 ---
 
-### Option 2: Local Installation and CLI Execution
+### Option 2: Run in Kaggle (GPU P100 / T4 x2)
+
+Use the dedicated Kaggle notebook: [`Interview_AI_Studio_Kaggle.ipynb`](Interview_AI_Studio_Kaggle.ipynb)
+
+#### Kaggle Workflow:
+1. Upload `Interview_AI_Studio_Kaggle.ipynb` to Kaggle (**New Notebook** -> **File** -> **Import Notebook**).
+2. In the right settings panel:
+   - **Accelerator**: Select **GPU P100** or **GPU T4 x2**.
+   - **Internet**: Switch to **Internet On**.
+3. (Optional) Attach a Kaggle Dataset containing your raw interview videos. The notebook will auto-detect input videos in `/kaggle/input/`.
+4. Run **Step 1** to install dependencies via `uv`.
+5. Run **Step 2** to discover dataset paths or initialize `/kaggle/working/inputs`.
+6. Configure settings using the interactive `ipywidgets` GUI dashboard in **Step 3**.
+7. Run **Step 4** to execute batch rendering.
+8. In **Step 5**, all output cut videos, XMLs, and EDLs are packaged into `Interview_AI_Studio_Outputs.zip` and appear in the Kaggle **Output** sidebar tab for instant download.
+
+---
+
+### Option 3: Local Installation and CLI Execution
 
 #### Prerequisites
 - **Python**: 3.10 or higher
@@ -196,7 +216,7 @@ Because Interview AI Studio builds non-destructive timelines pointing to the **o
 
 ## Configuration Parameters Reference
 
-| CLI Option | Colab Form Parameter | Default | Allowed Values / Range | Description |
+| CLI Option | Colab / Kaggle Form Parameter | Default | Allowed Values / Range | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `--input`, `-i` | `INPUT_DIR` | *Required* | Path string | Directory containing raw input video files (`.mp4`, `.mov`, `.mkv`, `.avi`, `.webm`, `.m4v`). |
 | `--output`, `-o` | `OUTPUT_DIR` | *Required* | Path string | Directory where cut videos, XML/EDL files, and summary logs will be saved. |
