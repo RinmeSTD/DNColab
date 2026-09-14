@@ -289,6 +289,7 @@ def test_denoise_audio_resemble_mock():
     enhanced_1d.ndim = 1
     unsqueezed_2d = MagicMock()
     unsqueezed_2d.ndim = 2
+    unsqueezed_2d.cpu.return_value = unsqueezed_2d
     enhanced_1d.unsqueeze.return_value = unsqueezed_2d
 
     mock_inference.enhance.return_value = (enhanced_1d, 44100)

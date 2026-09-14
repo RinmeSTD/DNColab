@@ -8,7 +8,6 @@ import warnings
 from typing import List, Tuple
 
 import numpy as np
-import pyloudnorm as pyln
 
 
 def denoise_audio_deepfilter(input_wav: str, output_wav: str) -> str:
@@ -58,15 +57,18 @@ def denoise_audio_deepfilter(input_wav: str, output_wav: str) -> str:
         except Exception as e:
             fallback_reason = f"df-enhance CLI error: {e}"
 
-    # 3. Fallback gracefully to file copy
-    if fallback_reason:
-        warn_msg = f"DeepFilterNet enhancement unavailable ({fallback_reason}). Falling back to unenhanced audio copy."
-    else:
-        warn_msg = "DeepFilterNet is not installed and 'df-enhance' CLI was not found. Falling back to unenhanced audio copy."
-    warnings.warn(warn_msg, UserWarning)
-
+    # 3. Fallback: Copy unenhanced file
     if os.path.abspath(input_wav) != os.path.abspath(output_wav):
         shutil.copyfile(input_wav, output_wav)
+
+    if fallback_reason:
+        warnings.warn(f"{fallback_reason} - Proceeding with original audio copy.", UserWarning)
+    else:
+        warnings.warn(
+            "DeepFilterNet 3 is not installed or available. Proceeding with original audio copy.",
+            UserWarning,
+        )
+
     return output_wav
 
 
@@ -77,65 +79,58 @@ def denoise_audio_resemble(
     nfe: int = 64,
 ) -> str:
     """
-    Denoises and enhances audio using resemble_enhance.
-    Falls back gracefully to file copy with warning if not installed.
+    Denoises and enhances speech using Resemble Enhance (deep generative speech enhancement).
+    Falls back gracefully to file copy with warning if resemble_enhance is not installed.
     """
     out_dir = os.path.dirname(os.path.abspath(output_wav)) or "."
     os.makedirs(out_dir, exist_ok=True)
     fallback_reason = None
 
-    # 1. Attempt using resemble_enhance Python API
     try:
+        import resemble_enhance.enhancer.inference as resemble_inf
         import torch
         import torchaudio
-        import resemble_enhance.enhancer.inference as resemble_inf
 
         device = "cuda" if torch.cuda.is_available() else "cpu"
         dwav, sr = torchaudio.load(input_wav)
 
-        # Convert to 1D mono tensor (samples,) for resemble_enhance
-        if hasattr(dwav, "ndim") and dwav.ndim > 1:
-            if dwav.shape[0] > 1:
-                dwav = dwav.mean(dim=0)
-            else:
-                dwav = dwav.squeeze(0)
-        elif hasattr(dwav, "squeeze"):
-            dwav = dwav.squeeze()
-
-        if hasattr(resemble_inf, "enhance"):
-            try:
-                enhanced, new_sr = resemble_inf.enhance(
-                    dwav, sr, device=device, solver=solver, nfe=nfe
-                )
-            except TypeError:
-                enhanced, new_sr = resemble_inf.enhance(dwav, sr, device=device)
-        elif hasattr(resemble_inf, "denoise"):
-            enhanced, new_sr = resemble_inf.denoise(dwav, sr, device=device)
+        if dwav.ndim > 1 and dwav.shape[0] > 1:
+            dwav_mono = dwav.mean(dim=0)
         else:
-            raise AttributeError("resemble_enhance.enhancer.inference has neither enhance nor denoise")
+            dwav_mono = dwav.squeeze()
 
-        # Ensure enhanced tensor is 2D (1, samples) for torchaudio.save
-        if hasattr(enhanced, "ndim") and enhanced.ndim == 1:
-            enhanced = enhanced.unsqueeze(0)
-        elif hasattr(enhanced, "unsqueeze") and getattr(enhanced, "ndim", None) is None:
+        enhanced, new_sr = resemble_inf.enhance(
+            dwav_mono,
+            sr,
+            device,
+            nfe=nfe,
+            solver=solver,
+            lambd=0.9,
+            tau=0.5,
+        )
+
+        if enhanced.ndim == 1:
             enhanced = enhanced.unsqueeze(0)
 
-        torchaudio.save(output_wav, enhanced, new_sr)
+        torchaudio.save(output_wav, enhanced.cpu(), new_sr)
         return output_wav
     except ImportError:
         pass
     except Exception as e:
         fallback_reason = f"resemble_enhance runtime error: {e}"
 
-    # 2. Fallback gracefully to file copy
-    if fallback_reason:
-        warn_msg = f"resemble_enhance enhancement unavailable ({fallback_reason}). Falling back to unenhanced audio copy."
-    else:
-        warn_msg = "resemble_enhance is not installed. Falling back to unenhanced audio copy."
-    warnings.warn(warn_msg, UserWarning)
-
+    # Fallback: Copy unenhanced file
     if os.path.abspath(input_wav) != os.path.abspath(output_wav):
         shutil.copyfile(input_wav, output_wav)
+
+    if fallback_reason:
+        warnings.warn(f"{fallback_reason} - Proceeding with original audio copy.", UserWarning)
+    else:
+        warnings.warn(
+            "resemble_enhance is not installed. Proceeding with original audio copy.",
+            UserWarning,
+        )
+
     return output_wav
 
 
@@ -144,65 +139,67 @@ def cut_and_crossfade_audio(
     sample_rate: int,
     segments: List[Tuple[float, float]],
     crossfade_ms: int = 30,
-    curve: str = "cosine",
 ) -> np.ndarray:
     """
-    Slices audio_data (1D mono or 2D stereo shape (channels, samples)) based on kept [start_sec, end_sec] segments.
-    Applies butt-splice boundary smoothing (anti-pop micro fade-in / fade-out on the boundary samples of each slice)
-    without shrinking or shortening the total audio duration, ensuring len(output_audio) == sum(end - start) * sample_rate
-    exactly matches the video duration.
-    Handles empty segments, single segment, and out-of-bound samples safely.
-    Computes smoothing in floating point to prevent dropouts on integer dtypes (int16/int32).
+    Slices audio according to kept intervals and applies non-shortening butt-splice micro
+    boundary fading (5-10ms) on segment edges to eliminate cut clicks and DC offset pops.
+    Total duration matches sum(end_sec - start_sec) exactly.
     """
-    if audio_data.size == 0 or not segments:
+    if not segments or audio_data.size == 0:
         if audio_data.ndim == 1:
-            return np.empty(0, dtype=audio_data.dtype)
-        return np.empty((audio_data.shape[0], 0), dtype=audio_data.dtype)
+            return np.zeros(0, dtype=audio_data.dtype)
+        return np.zeros((audio_data.shape[0], 0), dtype=audio_data.dtype)
 
     total_samples = audio_data.shape[-1]
-    slices = []
+    slices: List[np.ndarray] = []
 
     for start_sec, end_sec in segments:
-        start_samp = max(0, min(total_samples, int(round(start_sec * sample_rate))))
-        end_samp = max(start_samp, min(total_samples, int(round(end_sec * sample_rate))))
+        s_sec = max(0.0, float(start_sec))
+        e_sec = float(end_sec)
+        if e_sec <= s_sec:
+            continue
+
+        start_samp = int(round(s_sec * sample_rate))
+        end_samp = int(round(e_sec * sample_rate))
+        start_samp = min(max(0, start_samp), total_samples)
+        end_samp = min(max(start_samp, end_samp), total_samples)
+
         if end_samp > start_samp:
             slices.append(audio_data[..., start_samp:end_samp].copy())
 
     if not slices:
         if audio_data.ndim == 1:
-            return np.empty(0, dtype=audio_data.dtype)
-        return np.empty((audio_data.shape[0], 0), dtype=audio_data.dtype)
+            return np.zeros(0, dtype=audio_data.dtype)
+        return np.zeros((audio_data.shape[0], 0), dtype=audio_data.dtype)
 
-    fade_len = int(round(sample_rate * max(0, crossfade_ms) / 1000.0))
-    if fade_len > 0:
-        for s in slices:
-            k = min(fade_len, s.shape[-1] // 2)
-            if k <= 0:
-                continue
+    if len(slices) == 1:
+        return slices[0]
 
-            if curve == "linear":
-                fade_in = np.linspace(0.0, 1.0, k, endpoint=True)
-                fade_out = 1.0 - fade_in
-            else:  # raised cosine
-                t = np.linspace(0.0, np.pi, k, endpoint=True)
-                fade_in = 0.5 * (1.0 - np.cos(t))
-                fade_out = 0.5 * (1.0 + np.cos(t))
+    fade_samples = max(1, int(sample_rate * min(crossfade_ms, 15) / 1000))
 
-            fade_shape = (1,) * (s.ndim - 1)
-            fade_in = fade_in.reshape(fade_shape + (k,))
-            fade_out = fade_out.reshape(fade_shape + (k,))
+    for idx, s in enumerate(slices):
+        k = min(fade_samples, s.shape[-1] // 2)
+        if k <= 1:
+            continue
 
+        t = np.linspace(0.0, 1.0, k, endpoint=True, dtype=np.float64)
+        fade_in = 0.5 * (1.0 - np.cos(np.pi * t))
+        fade_out = 0.5 * (1.0 + np.cos(np.pi * t))
+
+        if idx > 0:
             head = s[..., :k]
-            tail = s[..., -k:]
-
             head_float = head.astype(np.float64) * fade_in
-            tail_float = tail.astype(np.float64) * fade_out
-
             if np.issubdtype(s.dtype, np.integer):
                 s[..., :k] = np.round(head_float).astype(s.dtype)
-                s[..., -k:] = np.round(tail_float).astype(s.dtype)
             else:
                 s[..., :k] = head_float.astype(s.dtype)
+
+        if idx < len(slices) - 1:
+            tail = s[..., -k:]
+            tail_float = tail.astype(np.float64) * fade_out
+            if np.issubdtype(s.dtype, np.integer):
+                s[..., -k:] = np.round(tail_float).astype(s.dtype)
+            else:
                 s[..., -k:] = tail_float.astype(s.dtype)
 
     return np.concatenate(slices, axis=-1)
@@ -214,14 +211,14 @@ def normalize_loudness(
     target_lufs: float = -14.0,
 ) -> np.ndarray:
     """
-    Normalizes audio to EBU R128 standard (default -14.0 LUFS) using pyloudnorm Meter.
-    Includes true peak limiting (<= 0.95 / -0.5 dBFS) to prevent any digital distortion/clipping.
-    Preserves 1D mono (samples,) and 2D stereo (channels, samples) array shapes.
+    Normalizes audio to EBU R128 standard (default -14.0 LUFS) with true peak limiting (<= 0.95).
+    Includes automatic fallback to robust pure-NumPy RMS normalization if pyloudnorm or scipy
+    is unavailable or encounters environment version conflicts.
     """
     if audio_data.size == 0:
         return audio_data.copy()
 
-    # Convert to float64 for high-precision pyloudnorm measurement
+    # Convert to float64 for high-precision measurement
     if np.issubdtype(audio_data.dtype, np.floating):
         audio_float = audio_data.astype(np.float64, copy=True)
     elif np.issubdtype(audio_data.dtype, np.integer):
@@ -232,7 +229,7 @@ def normalize_loudness(
 
     needs_transpose = False
     if audio_float.ndim == 2:
-        # pyloudnorm expects (samples, channels)
+        # Expects (samples, channels)
         if audio_float.shape[0] <= 8 and audio_float.shape[1] > audio_float.shape[0]:
             data_for_meter = audio_float.T
             needs_transpose = True
@@ -241,32 +238,51 @@ def normalize_loudness(
     else:
         data_for_meter = audio_float
 
-    meter = pyln.Meter(sample_rate)
+    # 1. Primary path: Attempt EBU R128 loudness normalization via pyloudnorm
     try:
+        import pyloudnorm as pyln
+
+        meter = pyln.Meter(sample_rate)
         loudness = meter.integrated_loudness(data_for_meter)
+
+        if not np.isnan(loudness) and not np.isinf(loudness) and loudness >= -70.0:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=UserWarning)
+                normalized = pyln.normalize.loudness(data_for_meter, loudness, target_lufs)
+
+            max_peak = float(np.max(np.abs(normalized)))
+            if max_peak > 0.95:
+                gain = 0.95 / max_peak
+                normalized = normalized * gain
+
+            normalized = np.clip(normalized, -0.95, 0.95)
+
+            if needs_transpose:
+                normalized = normalized.T
+
+            if np.issubdtype(audio_data.dtype, np.floating):
+                return normalized.astype(audio_data.dtype)
+            return normalized.astype(np.float32)
     except Exception:
-        loudness = float("-inf")
+        # Fall through to pure NumPy RMS normalizer
+        pass
 
-    # If audio is silent or unmeasurable (-inf, nan, or extremely low < -70 LUFS)
-    if np.isnan(loudness) or np.isinf(loudness) or loudness < -70.0:
-        return audio_data.copy()
+    # 2. Resilient pure-NumPy RMS normalization fallback
+    rms = float(np.sqrt(np.mean(data_for_meter**2)))
+    if rms > 1e-5:
+        target_rms = (10.0 ** (target_lufs / 20.0)) * 0.9
+        gain = min(target_rms / rms, 8.0)
+        normalized = data_for_meter * gain
+        max_peak = float(np.max(np.abs(normalized)))
+        if max_peak > 0.95:
+            normalized = normalized * (0.95 / max_peak)
+        normalized = np.clip(normalized, -0.95, 0.95)
 
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=UserWarning)
-        normalized = pyln.normalize.loudness(data_for_meter, loudness, target_lufs)
+        if needs_transpose:
+            normalized = normalized.T
 
-    # True peak limiting (<= 0.95 / -0.5 dBFS) to prevent clipping
-    max_peak = float(np.max(np.abs(normalized)))
-    if max_peak > 0.95:
-        gain = 0.95 / max_peak
-        normalized = normalized * gain
+        if np.issubdtype(audio_data.dtype, np.floating):
+            return normalized.astype(audio_data.dtype)
+        return normalized.astype(np.float32)
 
-    # Hard ceiling guard
-    normalized = np.clip(normalized, -0.95, 0.95)
-
-    if needs_transpose:
-        normalized = normalized.T
-
-    if np.issubdtype(audio_data.dtype, np.floating):
-        return normalized.astype(audio_data.dtype)
-    return normalized.astype(np.float32)
+    return audio_data.copy()

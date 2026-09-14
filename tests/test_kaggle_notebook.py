@@ -50,7 +50,7 @@ def test_kaggle_step_1_env_and_rust():
 
     env_cell = code_cells[0]
     assert "torch.cuda.is_available()" in env_cell
-    assert "uv" in env_cell
+    assert "pip install" in env_cell
     assert "deepfilternet" in env_cell
 
 
