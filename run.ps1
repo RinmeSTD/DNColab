@@ -6,6 +6,7 @@
     downloads precompiled DeepFilterNet binary if needed, and runs batch video processing.
 .EXAMPLE
     .\run.ps1
+    .\run.ps1 --overwrite
     .\run.ps1 --input D:\Videos --output D:\Output --min-silence 0.5
 #>
 
@@ -102,23 +103,35 @@ if ($NeedsInstall) {
     Write-Host "[SETUP] Dependencies installed successfully." -ForegroundColor Green
 }
 
-# 7. Resolve input/output arguments
-$TargetArgs = @()
-if ($ProcessArgs -and $ProcessArgs.Count -gt 0) {
-    $TargetArgs = $ProcessArgs
-} else {
-    $InputDir = Join-Path $ScriptDir "inputs"
-    $OutputDir = Join-Path $ScriptDir "outputs"
-    if (-not (Test-Path $InputDir)) { New-Item -ItemType Directory -Path $InputDir -Force | Out-Null }
-    if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
-
-    Write-Host "[INFO] No arguments provided. Defaulting to:" -ForegroundColor DarkCyan
-    Write-Host "       Input  : $InputDir" -ForegroundColor DarkCyan
-    Write-Host "       Output : $OutputDir" -ForegroundColor DarkCyan
-    Write-Host "       (Place raw video files in ./inputs/ to process)" -ForegroundColor DarkGray
-
-    $TargetArgs = @("--input", $InputDir, "--output", $OutputDir)
+# 7. Resolve input/output arguments with smart defaults
+$HasInput = $false
+$HasOutput = $false
+if ($ProcessArgs) {
+    foreach ($arg in $ProcessArgs) {
+        if ($arg -eq "-i" -or $arg -eq "--input") { $HasInput = $true }
+        if ($arg -eq "-o" -or $arg -eq "--output") { $HasOutput = $true }
+    }
 }
+
+$InputDir = Join-Path $ScriptDir "inputs"
+$OutputDir = Join-Path $ScriptDir "outputs"
+if (-not (Test-Path $InputDir)) { New-Item -ItemType Directory -Path $InputDir -Force | Out-Null }
+if (-not (Test-Path $OutputDir)) { New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null }
+
+$TargetArgs = @()
+if (-not $HasInput) {
+    $TargetArgs += @("--input", $InputDir)
+}
+if (-not $HasOutput) {
+    $TargetArgs += @("--output", $OutputDir)
+}
+if ($ProcessArgs) {
+    $TargetArgs += $ProcessArgs
+}
+
+Write-Host "[INFO] Active configuration:" -ForegroundColor DarkCyan
+Write-Host "       Input  : $InputDir" -ForegroundColor DarkCyan
+Write-Host "       Output : $OutputDir" -ForegroundColor DarkCyan
 
 # 8. Execute processor
 $ProcessorScript = Join-Path $ScriptDir "interview_processor.py"

@@ -1,5 +1,5 @@
 """
-interview_studio.video_engine - FFprobe metadata inspection, audio track extraction,
+video_engine.py - FFprobe metadata inspection, audio track extraction,
 and GPU-accelerated NVENC video cutting & muxing with CPU fallback.
 """
 import os
@@ -195,15 +195,18 @@ def cut_and_render_video_nvenc(
                 return output_video_path
             except subprocess.CalledProcessError as exc:
                 err_msg = exc.stderr.decode(errors="replace") if exc.stderr else str(exc)
-                logger.warning(
-                    "NVENC GPU encoding failed; falling back cleanly to CPU libx264 encoding. Stderr: %s",
-                    err_msg
+                # Find concise relevant error message
+                relevant_errs = [line.strip() for line in err_msg.splitlines() if any(k in line.lower() for k in ["cannot load", "cannot open", "no capable devices", "error", "failed"])]
+                summary_err = "; ".join(relevant_errs[-2:]) if relevant_errs else "NVENC unavailable"
+                logger.info(
+                    "NVENC GPU encoder not available (%s); rendering with CPU libx264.",
+                    summary_err
                 )
                 _render(cpu_encoder_args)
                 return output_video_path
             except Exception as exc:
-                logger.warning(
-                    "NVENC GPU encoding failed (%s); falling back cleanly to CPU libx264 encoding.",
+                logger.info(
+                    "NVENC GPU encoding failed (%s); rendering with CPU libx264.",
                     exc
                 )
                 _render(cpu_encoder_args)

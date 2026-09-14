@@ -22,12 +22,23 @@ def load_vad_model(device: str = "cpu") -> Tuple[Any, Any]:
     if torch is None:
         raise ImportError("PyTorch is required to load the Silero VAD model.")
 
-    model, utils = torch.hub.load(
-        repo_or_dir="snakers4/silero-vad",
-        model="silero_vad",
-        force_reload=False,
-        onnx=False,
-    )
+    try:
+        model, utils = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            force_reload=False,
+            onnx=False,
+            trust_repo=True,
+        )
+    except TypeError:
+        # Fallback for older torch versions without trust_repo parameter
+        model, utils = torch.hub.load(
+            repo_or_dir="snakers4/silero-vad",
+            model="silero_vad",
+            force_reload=False,
+            onnx=False,
+        )
+
     if hasattr(model, "to"):
         model.to(device)
     if hasattr(model, "eval"):

@@ -115,22 +115,30 @@ if [ "$NEEDS_INSTALL" = true ]; then
     echo -e "${GREEN}[SETUP] Dependencies installed successfully.${NC}"
 fi
 
-# 7. Resolve input/output arguments
+# 7. Resolve input/output arguments with smart defaults
+HAS_INPUT=false
+HAS_OUTPUT=false
+for arg in "$@"; do
+    if [ "$arg" = "-i" ] || [ "$arg" = "--input" ]; then HAS_INPUT=true; fi
+    if [ "$arg" = "-o" ] || [ "$arg" = "--output" ]; then HAS_OUTPUT=true; fi
+done
+
+INPUT_DIR="$SCRIPT_DIR/inputs"
+OUTPUT_DIR="$SCRIPT_DIR/outputs"
+mkdir -p "$INPUT_DIR" "$OUTPUT_DIR"
+
 TARGET_ARGS=()
-if [ $# -gt 0 ]; then
-    TARGET_ARGS=("$@")
-else
-    INPUT_DIR="$SCRIPT_DIR/inputs"
-    OUTPUT_DIR="$SCRIPT_DIR/outputs"
-    mkdir -p "$INPUT_DIR" "$OUTPUT_DIR"
-
-    echo -e "${CYAN}[INFO] No arguments provided. Defaulting to:${NC}"
-    echo -e "${CYAN}       Input  : $INPUT_DIR${NC}"
-    echo -e "${CYAN}       Output : $OUTPUT_DIR${NC}"
-    echo -e "${GRAY}       (Place raw video files in ./inputs/ to process)${NC}"
-
-    TARGET_ARGS=("--input" "$INPUT_DIR" "--output" "$OUTPUT_DIR")
+if [ "$HAS_INPUT" = false ]; then
+    TARGET_ARGS+=("--input" "$INPUT_DIR")
 fi
+if [ "$HAS_OUTPUT" = false ]; then
+    TARGET_ARGS+=("--output" "$OUTPUT_DIR")
+fi
+TARGET_ARGS+=("$@")
+
+echo -e "${CYAN}[INFO] Active configuration:${NC}"
+echo -e "${CYAN}       Input  : $INPUT_DIR${NC}"
+echo -e "${CYAN}       Output : $OUTPUT_DIR${NC}"
 
 # 8. Execute processor
 PROCESSOR_SCRIPT="$SCRIPT_DIR/interview_processor.py"

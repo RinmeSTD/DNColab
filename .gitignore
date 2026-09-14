@@ -2,9 +2,13 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .superpowers/
+.venv/
+.bin/
 inputs/
 outputs/
 *.mp4
+*.mov
+*.mkv
 *.wav
 *.xml
 *.edl
