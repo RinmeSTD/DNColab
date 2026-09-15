@@ -86,10 +86,12 @@ def test_get_speech_timestamps_mock():
     mock_get_ts = MagicMock(return_value=[{"start": 1.0, "end": 2.0}])
     mock_utils = (mock_get_ts,)
     mock_model = MagicMock()
+    mock_model.parameters.return_value = iter([])
     mock_tensor = MagicMock()
     mock_tensor.ndim = 2
     mock_tensor.mean.return_value = mock_tensor
     mock_tensor.squeeze.return_value = mock_tensor
+    mock_tensor.to.return_value = mock_tensor
 
     res = get_speech_timestamps(
         audio_tensor=mock_tensor,
@@ -112,6 +114,41 @@ def test_get_speech_timestamps_mock():
     )
 
 
+def test_get_speech_timestamps_device_alignment():
+    mock_get_ts = MagicMock(return_value=[{"start": 0.5, "end": 1.5}])
+    mock_utils = [mock_get_ts]
+
+    # Model with CUDA device parameter
+    mock_param = MagicMock()
+    mock_param.device = "cuda:0"
+    mock_model = MagicMock()
+    mock_model.parameters.return_value = iter([mock_param])
+
+    mock_tensor = MagicMock()
+    mock_tensor.ndim = 1
+    mock_tensor_cuda = MagicMock()
+    mock_tensor_cuda.ndim = 1
+    mock_tensor.to.return_value = mock_tensor_cuda
+    mock_tensor_cuda.squeeze.return_value = mock_tensor_cuda
+
+    res = get_speech_timestamps(
+        audio_tensor=mock_tensor,
+        model=mock_model,
+        utils=mock_utils,
+    )
+    assert res == [{"start": 0.5, "end": 1.5}]
+    mock_tensor.to.assert_called_once_with("cuda:0")
+    mock_get_ts.assert_called_once_with(
+        mock_tensor_cuda,
+        mock_model,
+        threshold=0.5,
+        sampling_rate=16000,
+        min_speech_duration_ms=250,
+        min_silence_duration_ms=800,
+        return_seconds=True,
+    )
+
+
 def test_load_vad_model_missing_torch():
     import vad_engine
     if vad_engine.torch is None:
@@ -122,3 +159,4 @@ def test_load_vad_model_missing_torch():
         model, utils = vad_engine.load_vad_model()
         assert model is not None
         assert utils is not None
+

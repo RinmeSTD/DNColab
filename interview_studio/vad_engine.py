@@ -57,6 +57,7 @@ def get_speech_timestamps(
 ) -> List[Dict[str, float]]:
     """
     Returns list of speech timestamps in seconds: [{'start': 1.2, 'end': 3.5}, ...]
+    Automatically ensures audio_tensor is on the same device (CUDA/CPU) as model.
     """
     if utils is None:
         raise ValueError("utils cannot be None")
@@ -72,8 +73,31 @@ def get_speech_timestamps(
             "utils must be a tuple/list containing get_speech_timestamps, an object with that attribute, or callable"
         )
 
+    # Convert to torch tensor if needed
+    if torch is not None and not isinstance(audio_tensor, torch.Tensor) and hasattr(audio_tensor, "__array__"):
+        audio_tensor = torch.from_numpy(audio_tensor)
+
+    # Match model device (CUDA or CPU)
+    target_device = None
+    if hasattr(model, "parameters"):
+        try:
+            target_device = next(model.parameters()).device
+        except Exception:
+            pass
+    elif hasattr(model, "_model") and hasattr(model._model, "parameters"):
+        try:
+            target_device = next(model._model.parameters()).device
+        except Exception:
+            pass
+
+    if target_device is not None and hasattr(audio_tensor, "to"):
+        try:
+            audio_tensor = audio_tensor.to(target_device)
+        except Exception:
+            pass
+
     # silero expects 1D float tensor
-    if hasattr(audio_tensor, "ndim") and audio_tensor.ndim > 1:
+    if hasattr(audio_tensor, "ndim") and isinstance(audio_tensor.ndim, int) and audio_tensor.ndim > 1:
         if hasattr(audio_tensor, "mean"):
             audio_tensor = audio_tensor.mean(dim=0)
     if hasattr(audio_tensor, "squeeze"):
